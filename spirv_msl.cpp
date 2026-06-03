@@ -11366,8 +11366,25 @@ void CompilerMSL::emit_atomic_func_op(uint32_t result_type, uint32_t result_id, 
 	else
 		use_native_image_atomic = false;
 
-	if (type.width == 64)
-		SPIRV_CROSS_THROW("MSL currently does not support 64-bit atomics.");
+	// CHANGE 1
+	// if (type.width == 64)
+	// 	SPIRV_CROSS_THROW("MSL currently does not support 64-bit atomics.");
+	const bool ulong_minmax = type.width == 64 && (opcode == OpAtomicUMax || opcode == OpAtomicUMin);
+	if (type.width == 64 && !ulong_minmax)
+		SPIRV_CROSS_THROW("MSL currently does not support 64-bit atomics apart from min/max on ulong buffers.");
+
+	// Remove fetch_ from op for ulong min/max case.
+	string tweaked_op_str;
+	if (ulong_minmax)
+	{
+		tweaked_op_str = op;
+		auto fetch_pos = tweaked_op_str.find("fetch_");
+		if (fetch_pos != string::npos) {
+			tweaked_op_str.erase(fetch_pos, 6);
+		    op = tweaked_op_str.c_str();
+		}
+	}
+	// ENDCHANGE
 
 	auto remapped_type = type;
 	remapped_type.basetype = expected_type;
@@ -11619,8 +11636,13 @@ void CompilerMSL::emit_atomic_func_op(uint32_t result_type, uint32_t result_id, 
 		if (expected_type != type.basetype)
 			exp = bitcast_expression(type, expected_type, exp);
 
-		if (strcmp(op, "atomic_store") != 0)
-			emit_op(result_type, result_id, exp, false);
+		// CHANGE 2
+		// ulong atomics return void so just emit a semicolon. result_id is not used here. 
+		// The SPIR-V must therefore not consume the return value of a 64 bit atomic min/max operation!
+		if (ulong_minmax) 
+			statement(exp, ";"); 
+		else if (strcmp(op, "atomic_store") != 0) // ENDCHANGE
+			emit_op(result_type, result_id, exp, false); 
 		else
 			statement(exp, ";");
 	}
